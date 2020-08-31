@@ -41,7 +41,7 @@ from django.utils.translation import ugettext as _
 from django.utils import encoding, six, timezone
 
 from helpdesk import settings
-from helpdesk.lib import send_templated_mail, safe_template_context, process_attachments
+from helpdesk.lib import send_templated_mail, safe_template_context, process_attachments, queue_template_context
 from helpdesk.models import Queue, Ticket, TicketCC, FollowUp, IgnoreEmail
 
 import logging
@@ -446,6 +446,20 @@ def ticket_from_message(message, queue, logger):
     if ticket is None:
         if settings.QUEUE_EMAIL_BOX_UPDATE_ONLY:
             return None
+
+        # If sender_email does not exist in Users, do not create a ticket, but send an email.
+        user = User.objects.filter(email=sender_email).first()
+        if not user:
+            logger.warn("Refused to create ticket for non-registered email %s" % sender_email)
+            send_templated_mail(
+                'noticket_submitter',
+                context={'queue': queue_template_context(queue)},
+                recipients=sender_email,
+                sender=queue.from_address,
+                fail_silently=True,
+            )
+            return True
+
         new = True
         t = Ticket.objects.create(
             title=subject,
