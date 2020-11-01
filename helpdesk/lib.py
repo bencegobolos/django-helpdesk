@@ -87,10 +87,18 @@ def send_templated_mail(template_name,
             logger.warning('template "%s" does not exist, no mail sent', template_name)
             return  # just ignore if template doesn't exist
 
-    subject_part = from_string(
-        HELPDESK_EMAIL_SUBJECT_TEMPLATE % {
-            "subject": t.subject
-        }).render(context).replace('\n', '').replace('\r', '')
+    if template_name.startswith("noticket_"):
+        subject_part = from_string(t.subject).render(context).replace('\n', '').replace('\r', '')
+    elif template_name.startswith("updated_"):
+        subject_part = from_string(
+            HELPDESK_EMAIL_SUBJECT_TEMPLATE % {
+                "subject": ""
+            }).render(context).replace('\n', '').replace('\r', '').strip()
+    else:
+        subject_part = from_string(
+            HELPDESK_EMAIL_SUBJECT_TEMPLATE % {
+                "subject": t.subject
+            }).render(context).replace('\n', '').replace('\r', '')
 
     footer_file = os.path.join('helpdesk', locale, 'email_text_footer.txt')
 

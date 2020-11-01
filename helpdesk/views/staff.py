@@ -571,12 +571,15 @@ def update_ticket(request, ticket_id, public=False):
 
     messages_sent_to = []
 
+    user_of_submitter_email = User.objects.filter(email=ticket.submitter_email).first()
+
     # ticket might have changed above, so we re-instantiate context with the
     # (possibly) updated ticket.
     context = safe_template_context(ticket)
     context.update(
         resolution=ticket.resolution,
         comment=f.comment,
+        user=user_of_submitter_email,
     )
 
     if public and (f.comment or (

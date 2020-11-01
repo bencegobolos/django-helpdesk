@@ -195,7 +195,7 @@ def process_queue(q, logger):
             else:
                 raw_content = server.retr(msgNum)[1]
                 if type(raw_content[0]) is bytes:
-                    full_message = "\n".join([elm.decode('utf-8') for elm in raw_content])
+                    full_message = "\n".join([elm.decode('utf-8', "replace") for elm in raw_content])
                 else:
                     full_message = encoding.force_text("\n".join(raw_content), errors='replace')
             ticket = ticket_from_message(message=full_message, queue=q, logger=logger)
@@ -332,6 +332,7 @@ def ticket_from_message(message, queue, logger):
     # but the getaddresses() function seems to be able to handle just unclosed quotes
     # correctly. Not ideal, but this seems to work for now.
     sender_email = email.utils.getaddresses(['\"' + sender.replace('<', '\" <')])[0][1]
+    user_of_sender_email = User.objects.filter(email=sender_email).first()
 
     cc = message.get_all('cc', None)
     if cc:
@@ -448,8 +449,7 @@ def ticket_from_message(message, queue, logger):
             return None
 
         # If sender_email does not exist in Users, do not create a ticket, but send an email.
-        user = User.objects.filter(email=sender_email).first()
-        if not user:
+        if not user_of_sender_email:
             logger.warn("Refused to create ticket for non-registered email %s" % sender_email)
             send_templated_mail(
                 'noticket_submitter',
@@ -534,7 +534,7 @@ def ticket_from_message(message, queue, logger):
     for att_file in attached:
         logger.info("Attachment '%s' (with size %s) successfully added to ticket from email." % (att_file[0], att_file[1].size))
 
-    context = safe_template_context(t)
+    context = {**safe_template_context(t), 'user': user_of_sender_email}
 
     if new:
         if sender_email:

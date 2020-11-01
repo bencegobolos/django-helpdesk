@@ -1,6 +1,0 @@
-Üdvözlettel,
-
-{{ queue.title }}{% if queue.email_address %}
-{{ queue.email_address }}{% endif %}
-
-Ezt az e-mail üzenetet az ügyfélszolgálati rendszerünk küldi neked, az adatvédelmi irányelveinknek megfelelően. Kérlek értesíts minket amennyiben úgy gondolod, hogy ezt az e-mail üzenetet tévesen küldtük el.
