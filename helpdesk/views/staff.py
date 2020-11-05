@@ -79,7 +79,7 @@ def _has_access_to_queue(user, queue):
 def _is_my_ticket(user, ticket):
     """Check to see if the user has permission to access
     a ticket. If not then deny access."""
-    if user.is_superuser or user.is_staff or user.id == ticket.assigned_to.id:
+    if user.is_superuser or user.is_staff or bool(user.email == ticket.submitter_email if user.email else False) or bool(user.id == ticket.assigned_to.id if ticket.assigned_to else False):
         return True
     else:
         return False
@@ -474,7 +474,7 @@ def update_ticket(request, ticket_id, public=False):
 
     f = FollowUp(ticket=ticket, date=timezone.now(), comment=comment)
 
-    if request.user.is_staff or helpdesk_settings.HELPDESK_ALLOW_NON_STAFF_TICKET_UPDATE:
+    if request.user.is_staff:
         f.user = request.user
 
     f.public = public
@@ -594,7 +594,7 @@ def update_ticket(request, ticket_id, public=False):
 
         template_suffix = 'submitter'
 
-        if ticket.submitter_email:
+        if ticket.submitter_email and not request.user.is_staff:
             send_templated_mail(
                 template + template_suffix,
                 context,
