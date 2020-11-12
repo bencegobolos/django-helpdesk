@@ -375,6 +375,8 @@ class PublicTicketForm(AbstractTicketForm):
             self.fields['priority'].widget = forms.HiddenInput()
         if hasattr(settings, 'HELPDESK_PUBLIC_TICKET_DUE_DATE'):
             self.fields['due_date'].widget = forms.HiddenInput()
+        if kwargs.get('initial', None) and kwargs['initial'].get('submitter_email', None):
+            self.fields['submitter_email'].widget = forms.HiddenInput()
 
         self._add_form_custom_fields(False)
 
@@ -390,7 +392,7 @@ class PublicTicketForm(AbstractTicketForm):
         self._create_custom_fields(ticket)
 
         followup = self._create_follow_up(
-            ticket, title=_('Ticket Opened Via Web'), user=user)
+            ticket, title=_('Ticket Opened Via Web'))
         followup.save()
 
         files = self._attach_files_to_follow_up(followup)

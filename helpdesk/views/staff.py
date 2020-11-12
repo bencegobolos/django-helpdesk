@@ -22,6 +22,7 @@ from django.shortcuts import render, get_object_or_404
 from django.utils.dates import MONTHS_3
 from django.utils.translation import ugettext as _
 from django.utils.html import escape
+from django.utils.http import urlquote
 from django import forms
 from django.utils import timezone
 
@@ -29,16 +30,16 @@ from django.utils import six
 
 from helpdesk.forms import (
     TicketForm, UserSettingsForm, EmailIgnoreForm, EditTicketForm, TicketCCForm,
-    TicketCCEmailForm, TicketCCUserForm, EditFollowUpForm, TicketDependencyForm
+    TicketCCEmailForm, TicketCCUserForm, EditFollowUpForm, TicketDependencyForm, PublicTicketForm
 )
-from helpdesk.decorators import staff_member_required, superuser_required
+from helpdesk.decorators import staff_member_required, superuser_required, protect_view
 from helpdesk.lib import (
     send_templated_mail, apply_query, safe_template_context,
-    process_attachments, queue_template_context,
+    process_attachments, queue_template_context, text_is_spam,
 )
 from helpdesk.models import (
     Ticket, Queue, FollowUp, TicketChange, PreSetReply, Attachment, SavedSearch,
-    IgnoreEmail, TicketCC, TicketDependency,
+    IgnoreEmail, TicketCC, TicketDependency, KBCategory,
 )
 from helpdesk import settings as helpdesk_settings
 
@@ -85,7 +86,7 @@ def _is_my_ticket(user, ticket):
         return False
 
 
-@staff_member_required
+@protect_view
 def dashboard(request):
     """
     A quick summary overview for users: A list of their own tickets, a table
@@ -278,7 +279,7 @@ def followup_delete(request, ticket_id, followup_id):
     return HttpResponseRedirect(reverse('helpdesk:view', args=[ticket.id]))
 
 
-@staff_member_required
+@protect_view
 def view_ticket(request, ticket_id):
     ticket = get_object_or_404(Ticket, id=ticket_id)
     if not _has_access_to_queue(request.user, ticket.queue):
@@ -476,6 +477,10 @@ def update_ticket(request, ticket_id, public=False):
 
     if request.user.is_staff:
         f.user = request.user
+
+    # If user adds a comment to a ticket in CLOSED status, put it in REOPENED status.
+    if not request.user.is_staff and ticket.status == Ticket.CLOSED_STATUS:
+        new_status = Ticket.REOPENED_STATUS
 
     f.public = public
 
@@ -1013,41 +1018,99 @@ def edit_ticket(request, ticket_id):
     return render(request, 'helpdesk/edit_ticket.html', {'form': form})
 
 
-@staff_member_required
+@protect_view
 def create_ticket(request):
     if helpdesk_settings.HELPDESK_STAFF_ONLY_TICKET_OWNERS:
         assignable_users = User.objects.filter(is_active=True, is_staff=True).order_by(User.USERNAME_FIELD)
     else:
         assignable_users = User.objects.filter(is_active=True).order_by(User.USERNAME_FIELD)
 
-    if request.method == 'POST':
-        form = TicketForm(request.POST, request.FILES)
-        form.fields['queue'].choices = [('', '--------')] + [
-            (q.id, q.title) for q in Queue.objects.all()]
-        form.fields['assigned_to'].choices = [('', '--------')] + [
-            (u.id, u.get_username()) for u in assignable_users]
-        if form.is_valid():
-            ticket = form.save(user=request.user)
-            if _has_access_to_queue(request.user, ticket.queue):
-                return HttpResponseRedirect(ticket.get_absolute_url())
-            else:
-                return HttpResponseRedirect(reverse('helpdesk:dashboard'))
+    if request.user.is_staff:
+        if request.method == 'POST':
+            form = TicketForm(request.POST, request.FILES)
+            form.fields['queue'].choices = [('', '--------')] + [
+                (q.id, q.title) for q in Queue.objects.all()]
+            form.fields['assigned_to'].choices = [('', '--------')] + [
+                (u.id, u.get_username()) for u in assignable_users]
+            if form.is_valid():
+                ticket = form.save(user=request.user)
+                if _has_access_to_queue(request.user, ticket.queue):
+                    return HttpResponseRedirect(ticket.get_absolute_url())
+                else:
+                    return HttpResponseRedirect(reverse('helpdesk:dashboard'))
+        else:
+            initial_data = {}
+            if request.user.usersettings_helpdesk.settings.get('use_email_as_submitter', False) and request.user.email:
+                initial_data['submitter_email'] = request.user.email
+            if 'queue' in request.GET:
+                initial_data['queue'] = request.GET['queue']
+
+            form = TicketForm(initial=initial_data)
+            form.fields['queue'].choices = [('', '--------')] + [
+                (q.id, q.title) for q in Queue.objects.all()]
+            form.fields['assigned_to'].choices = [('', '--------')] + [
+                (u.id, u.get_username()) for u in assignable_users]
+            if helpdesk_settings.HELPDESK_CREATE_TICKET_HIDE_ASSIGNED_TO:
+                form.fields['assigned_to'].widget = forms.HiddenInput()
+
+        return render(request, 'helpdesk/create_ticket.html', {'form': form})
     else:
-        initial_data = {}
-        if request.user.usersettings_helpdesk.settings.get('use_email_as_submitter', False) and request.user.email:
-            initial_data['submitter_email'] = request.user.email
-        if 'queue' in request.GET:
-            initial_data['queue'] = request.GET['queue']
+        if request.method == 'POST':
+            form = PublicTicketForm(request.POST, request.FILES)
+            form.fields['queue'].choices = [('', '--------')] + [
+                (q.id, q.title) for q in Queue.objects.filter(allow_public_submission=True)]
+            if form.is_valid():
+                if text_is_spam(form.cleaned_data['body'], request):
+                    # This submission is spam. Let's not save it.
+                    return render(request, template_name='helpdesk/public_spam.html')
+                else:
+                    ticket = form.save(
+                        user=request.user if request.user.is_authenticated else None)
+                    try:
+                        return HttpResponseRedirect(ticket.get_absolute_url())
+                    except ValueError:
+                        # if someone enters a non-int string for the ticket
+                        return HttpResponseRedirect(reverse('helpdesk:home'))
+        else:
+            try:
+                queue = Queue.objects.get(slug=request.GET.get('queue', None))
+            except Queue.DoesNotExist:
+                queue = None
+            initial_data = {}
 
-        form = TicketForm(initial=initial_data)
-        form.fields['queue'].choices = [('', '--------')] + [
-            (q.id, q.title) for q in Queue.objects.all()]
-        form.fields['assigned_to'].choices = [('', '--------')] + [
-            (u.id, u.get_username()) for u in assignable_users]
-        if helpdesk_settings.HELPDESK_CREATE_TICKET_HIDE_ASSIGNED_TO:
-            form.fields['assigned_to'].widget = forms.HiddenInput()
+            # add pre-defined data for public ticket
+            if hasattr(settings, 'HELPDESK_PUBLIC_TICKET_QUEUE'):
+                # get the requested queue; return an error if queue not found
+                try:
+                    queue = Queue.objects.get(slug=settings.HELPDESK_PUBLIC_TICKET_QUEUE)
+                except Queue.DoesNotExist:
+                    return HttpResponse(status=500)
+            if hasattr(settings, 'HELPDESK_PUBLIC_TICKET_PRIORITY'):
+                initial_data['priority'] = settings.HELPDESK_PUBLIC_TICKET_PRIORITY
+            if hasattr(settings, 'HELPDESK_PUBLIC_TICKET_DUE_DATE'):
+                initial_data['due_date'] = settings.HELPDESK_PUBLIC_TICKET_DUE_DATE
 
-    return render(request, 'helpdesk/create_ticket.html', {'form': form})
+            if queue:
+                initial_data['queue'] = queue.id
+
+            if request.user.is_authenticated and request.user.email:
+                initial_data['submitter_email'] = request.user.email
+
+            form = PublicTicketForm(initial=initial_data)
+            form.fields['queue'].choices = [('', '--------')] + [
+                (q.id, q.title) for q in Queue.objects.filter(allow_public_submission=True)]
+
+        knowledgebase_categories = None
+
+        if helpdesk_settings.HELPDESK_KB_ENABLED:
+            knowledgebase_categories = KBCategory.objects.all()
+
+        return render(request, 'helpdesk/create_ticket.html', {
+            'form': form,
+            'helpdesk_settings': helpdesk_settings,
+            'kb_categories': knowledgebase_categories
+        })
+
 
 
 @staff_member_required

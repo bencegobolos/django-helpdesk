@@ -19,7 +19,7 @@ $(document).on('change', ':file', function() {
 
 {% block helpdesk_body %}
 
-
+{% if user.is_staff %}
             <div class="row">
                 <div class="col-lg-12">
                     <div class="panel panel-primary">
@@ -69,5 +69,44 @@ $(document).on('change', ':file', function() {
 			$( "#id_due_date" ).datepicker({dateFormat: 'yy-mm-dd'});
                 } );
             </script>
+
+{% else %}
+
+<div class="panel-body">
+    <h2 name='submit'>{% trans "Submit a Ticket" %}</h2>
+<p>{% trans "All fields are required." %} {% trans "Please provide as descriptive a title and description as possible." %}</p>
+
+<form role="form" method='post' action='./#submit' enctype='multipart/form-data'>
+<fieldset>
+        {{ form|bootstrap }}
+        {% comment %}
+        {% for field in form %}
+
+            {% if field.is_hidden %}
+                {{ field }}
+            {% else %}
+
+
+            <div class="form-group {% if field.errors %}has-error{% endif %}">
+                <label class="control-label" for='id_{{ field.name }}'>{{ field.label }}</label>{% if not field.field.required %} <span class='form_optional'>{% trans "(Optional)" %}</span>{% endif %}</dt>
+                <div class="input-group">{{ field }}</div>
+                {% if field.errors %}<div class="help-block">{{ field.errors }}</div>{% endif %}
+                {% if field.help_text %}<span class='fhelp-block'>{{ field.help_text }}</span>{% endif %}
+            </div>
+
+        {% endif %}
+
+        {% endfor %}
+        {% endcomment %}
+
+    <div class='buttons form-group'>
+        <input type='submit' class="btn btn-primary" value='{% trans "Submit Ticket" %}' />
+    </div>
+</fieldset>
+
+{% csrf_token %}</form>
+</div>
+
+{% endif %}
 
 {% endblock %}
