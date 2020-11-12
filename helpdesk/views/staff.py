@@ -599,7 +599,7 @@ def update_ticket(request, ticket_id, public=False):
 
         template_suffix = 'submitter'
 
-        if ticket.submitter_email and not request.user.is_staff:
+        if ticket.submitter_email and request.user.is_staff:
             send_templated_mail(
                 template + template_suffix,
                 context,

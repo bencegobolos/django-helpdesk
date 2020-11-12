@@ -237,6 +237,7 @@ class AbstractTicketForm(CustomFieldMixin, forms.Form):
     def _send_messages(ticket, queue, followup, files, user=None):
         context = safe_template_context(ticket)
         context['comment'] = followup.comment
+        context['user'] = user
 
         messages_sent_to = []
 
@@ -399,7 +400,8 @@ class PublicTicketForm(AbstractTicketForm):
         self._send_messages(ticket=ticket,
                             queue=queue,
                             followup=followup,
-                            files=files)
+                            files=files,
+                            user=user)
         return ticket
 
 
