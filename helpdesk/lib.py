@@ -342,3 +342,34 @@ def process_attachments(followup, attached_files):
                 attachments.append([filename, att.file])
 
     return attachments
+
+
+def get_followup_history_text(ticket_object, *, format):
+    """
+    The format parameter must be 'html' or 'text', otherwise RuntimeError is raised.
+    Iterate over the followups, get each comment from it and format into a text with indentation of '>' characters, e.g.:
+
+        > most recent followup
+
+        >> another followup
+        >> with mutliple lines.
+
+        >>> last followup (the oldest)
+    """
+    if format not in ("text", "html"):
+        raise RuntimeError(f"Unsupported format: '{format}'. Supported formats: text, html")
+
+    history_text = ""
+
+    for i, f in enumerate(ticket_object.followup_set.all().order_by('-id')[1:], start=1):
+        if format == "text":
+            indent = ">" * i
+            history_text += "\n".join([f"{indent} {line}" for line in f.comment.split("\n")]) + "\n"
+        elif format == "html":
+            indent = "&gt;" * i
+            history_text += "<br>\n".join([f"{indent} {line}" for line in f.comment.split("\n")]) + "<br>\n<br>\n"
+
+    if format == "text":
+        return history_text
+    elif format == "html":
+        return mark_safe(history_text)

@@ -35,7 +35,7 @@ from helpdesk.forms import (
 from helpdesk.decorators import staff_member_required, superuser_required, protect_view
 from helpdesk.lib import (
     send_templated_mail, apply_query, safe_template_context,
-    process_attachments, queue_template_context, text_is_spam,
+    process_attachments, queue_template_context, text_is_spam, get_followup_history_text
 )
 from helpdesk.models import (
     Ticket, Queue, FollowUp, TicketChange, PreSetReply, Attachment, SavedSearch,
@@ -585,6 +585,8 @@ def update_ticket(request, ticket_id, public=False):
         resolution=ticket.resolution,
         comment=f.comment,
         user=user_of_submitter_email,
+        history_html=get_followup_history_text(ticket, format="html"),
+        history_text=get_followup_history_text(ticket, format="text"),
     )
 
     if public and (f.comment or (
