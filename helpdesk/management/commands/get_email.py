@@ -418,7 +418,11 @@ def ticket_from_message(message, queue, logger):
         counter += 1
 
     if not body:
-        mail = BeautifulSoup(part.get_payload(), "lxml")
+        payload = part.get_payload()
+        if payload == '' or payload == []:
+            logger.debug("payload is empty, removing")
+            return True
+        mail = BeautifulSoup(payload, "lxml")
         if ">" in mail.text:
             body = mail.find('body')
             body = body.text
